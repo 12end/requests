@@ -264,8 +264,10 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 		req.setBodyBytes(Forms) // set forms to body
 	}
 
-	req.RawBody, err = ioutil.ReadAll(req.httpreq.Body)
-	req.httpreq.Body = ioutil.NopCloser(bytes.NewBuffer(req.RawBody))
+	if req.httpreq.Body != nil {
+		req.RawBody, err = ioutil.ReadAll(req.httpreq.Body)
+		req.httpreq.Body = ioutil.NopCloser(bytes.NewBuffer(req.RawBody))
+	}
 	req.ClientSetCookies()
 
 	res, err := req.Client.Do(req.httpreq)
