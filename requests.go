@@ -27,11 +27,14 @@ import (
 )
 
 type Request struct {
-	httpreq *http.Request
-	Header  *http.Header
-	Client  *http.Client
-	Cookies []*http.Cookie
-	RawBody []byte
+	httpreq             *http.Request
+	header              *http.Header
+	Client              *http.Client
+	Cookies             []*http.Cookie
+	body                []byte
+	Trace               *[]TraceInfo
+	waitResponseStart   time.Time
+	waitResponeDuration time.Duration
 }
 
 type Response struct {
@@ -45,6 +48,12 @@ type Response struct {
 	Delay    time.Duration
 }
 
+type TraceInfo struct {
+	Request  string
+	Response string
+	Duration time.Duration
+}
+
 type Header map[string]string
 type Host string
 type Params map[string]string
@@ -56,7 +65,6 @@ type File struct {
 	Content     []byte
 }
 type NoRedirect bool
-type Trace bool
 type Timeout time.Duration
 
 // {username,password}
@@ -75,7 +83,7 @@ func Requests() *Request {
 		ProtoMajor: 1,
 		ProtoMinor: 1,
 	}
-	req.Header = &req.httpreq.Header
+	req.header = &req.httpreq.Header
 	req.httpreq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
 	req.httpreq.Header.Set("Accept", "*/*")
 	req.httpreq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
@@ -95,10 +103,25 @@ func Requests() *Request {
 
 	// auto with Cookies
 	// cookiejar.New source code return jar, nil
-	jar, _ := cookiejar.New(nil)
+	req.Client.Jar, _ = cookiejar.New(nil)
 
-	req.Client.Jar = jar
+	return req
+}
 
+//开启trace，非线程安全
+func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
+	req.httpreq = req.httpreq.WithContext(
+		httptrace.WithClientTrace(
+			req.httpreq.Context(),
+			&httptrace.ClientTrace{
+				WroteRequest: func(_ httptrace.WroteRequestInfo) {
+					req.waitResponseStart = time.Now()
+				},
+				GotFirstResponseByte: func() {
+					req.waitResponeDuration = time.Since(req.waitResponseStart)
+				},
+			}))
+	req.Trace = traceInfo
 	return req
 }
 
@@ -117,7 +140,7 @@ func (req *Request) GetReqText() (reqText string) {
 		headers = append(headers, fmt.Sprintf("Content-Length: %d", httpreq.ContentLength))
 	}
 	sort.Strings(headers)
-	reqText += fmt.Sprintf("%s\r\n\r\n%s\r\n", strings.Join(headers, "\r\n"), req.RawBody)
+	reqText += fmt.Sprintf("%s\r\n\r\n%s\r\n", strings.Join(headers, "\r\n"), req.body)
 	return
 }
 
@@ -176,13 +199,13 @@ func Move(origurl string, args ...interface{}) (resp *Response, err error) {
 
 func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err error) {
 	// set params ?a=b&b=c
-	//set Header
+	//set header
 	params := []map[string]string{}
 	datas := []map[string]string{} // POST
 	files := []map[string]File{}   //post file
 
 	//reset Cookies,
-	//Client.Do can copy cookie from client.Jar to Req.Header
+	//Client.Do can copy cookie from client.Jar to Req.header
 	delete(req.httpreq.Header, "Cookie")
 
 	req.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -195,14 +218,12 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 		}
 	}
 
-	var waitResponseStart time.Time
-	var waitResponeDuration time.Duration
 	for _, arg := range args {
 		switch a := arg.(type) {
-		// arg is Header , set to request header
+		// arg is header , set to request header
 		case Header:
 			for k, v := range a {
-				(*req.Header)[k] = []string{v}
+				(*req.header)[k] = []string{v}
 			}
 		case Host:
 			req.httpreq.Host = string(a)
@@ -216,19 +237,6 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 				req.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 					return http.ErrUseLastResponse
 				}
-			}
-		case Trace:
-			if a == true {
-				req.httpreq = req.httpreq.WithContext(httptrace.WithClientTrace(
-					req.httpreq.Context(),
-					&httptrace.ClientTrace{
-						WroteRequest: func(_ httptrace.WroteRequestInfo) {
-							waitResponseStart = time.Now()
-						},
-						GotFirstResponseByte: func() {
-							waitResponeDuration = time.Since(waitResponseStart)
-						},
-					}))
 			}
 		case []byte:
 			req.httpreq.ContentLength = int64(len(arg.([]byte)))
@@ -265,8 +273,8 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 	}
 
 	if req.httpreq.Body != nil {
-		req.RawBody, err = ioutil.ReadAll(req.httpreq.Body)
-		req.httpreq.Body = ioutil.NopCloser(bytes.NewBuffer(req.RawBody))
+		req.body, err = ioutil.ReadAll(req.httpreq.Body)
+		req.httpreq.Body = ioutil.NopCloser(bytes.NewBuffer(req.body))
 	}
 	req.ClientSetCookies()
 
@@ -281,9 +289,16 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 	resp = &Response{}
 	resp.HttpResp = res
 	resp.Req = req
-	resp.Delay = waitResponeDuration
+	resp.Delay = req.waitResponeDuration
 
 	resp.Content()
+	if req.Trace != nil {
+		*req.Trace = append(*req.Trace, TraceInfo{
+			Request:  req.GetReqText(),
+			Response: resp.GetRespText(),
+			Duration: resp.Delay,
+		})
+	}
 	defer res.Body.Close()
 	return resp, nil
 }
@@ -328,7 +343,7 @@ func (req *Request) SetCookie(cookie *http.Cookie) {
 }
 
 func (req *Request) ClearCookies() {
-	req.Cookies = req.Cookies[0:0]
+	req.Client.Jar, _ = cookiejar.New(nil)
 }
 
 func (req *Request) ClientSetCookies() {
@@ -337,7 +352,7 @@ func (req *Request) ClientSetCookies() {
 		// 1. Cookies have content, Copy Cookies to Client.jar
 		// 2. Clear  Cookies
 		req.Client.Jar.SetCookies(req.httpreq.URL, req.Cookies)
-		req.ClearCookies()
+		req.Cookies = req.Cookies[0:0]
 	}
 
 }
@@ -369,7 +384,7 @@ func (resp *Response) Content() []byte {
 	}
 
 	var Body = resp.HttpResp.Body
-	if resp.HttpResp.Header.Get("Content-Encoding") == "gzip" && resp.Req.Header.Get("Accept-Encoding") != "" {
+	if resp.HttpResp.Header.Get("Content-Encoding") == "gzip" && resp.Req.header.Get("Accept-Encoding") != "" {
 		// fmt.Println("gzip")
 		reader, err := gzip.NewReader(Body)
 		if err != nil {
@@ -529,7 +544,7 @@ func (req *Request) PostJson(origurl string, args ...interface{}) (resp *Respons
 
 	req.httpreq.Method = "POST"
 
-	req.Header.Set("Content-Type", "application/json")
+	req.header.Set("Content-Type", "application/json")
 
 	return req.do(origurl, args...)
 }
@@ -539,7 +554,7 @@ func (req *Request) Post(origurl string, args ...interface{}) (resp *Response, e
 	req.httpreq.Method = "POST"
 
 	//set default
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	return req.do(origurl, args...)
 }
@@ -550,7 +565,7 @@ func (req *Request) PUT(origurl string, args ...interface{}) (resp *Response, er
 
 	req.httpreq.Method = "PUT"
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	return req.do(origurl, args...)
 }
@@ -621,7 +636,7 @@ func (req *Request) buildFilesAndForms(files []map[string]File, datas []map[stri
 	// "Content-Type": "multipart/form-data; boundary=------------------------7d87eceb5520850c",
 	req.httpreq.Body = ioutil.NopCloser(bytes.NewReader(b.Bytes()))
 	req.httpreq.ContentLength = int64(b.Len())
-	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.header.Set("Content-Type", w.FormDataContentType())
 }
 
 // build post Form data
