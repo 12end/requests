@@ -2,14 +2,8 @@ package requests
 
 import (
 	"bytes"
-	"compress/gzip"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"golang.org/x/net/html"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -18,12 +12,10 @@ import (
 	"net/http/httptrace"
 	"net/textproto"
 	"net/url"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 type Request struct {
@@ -35,17 +27,6 @@ type Request struct {
 	Trace               *[]TraceInfo
 	waitResponseStart   time.Time
 	waitResponeDuration time.Duration
-}
-
-type Response struct {
-	HttpResp *http.Response
-	content  []byte
-	hasRead  bool
-	text     string
-	Req      *Request
-	header   string
-	title    string
-	Delay    time.Duration
 }
 
 type TraceInfo struct {
@@ -125,6 +106,10 @@ func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
 	return req
 }
 
+func (req *Request) EmptyHost() {
+	req.httpreq.Host = ""
+}
+
 func (req *Request) GetReqText() (reqText string) {
 	httpreq := req.httpreq
 	path := httpreq.URL.RequestURI()
@@ -160,10 +145,6 @@ func (req *Request) Get(origurl string, args ...interface{}) (resp *Response, er
 	return resp, err
 }
 
-func (req *Request) EmptyHost() {
-	req.httpreq.Host = ""
-}
-
 func Head(origurl string, args ...interface{}) (resp *Response, err error) {
 	req := Requests()
 	req.httpreq.Method = "HEAD"
@@ -184,6 +165,13 @@ func Delete(origurl string, args ...interface{}) (resp *Response, err error) {
 	req.httpreq.Method = "DELETE"
 
 	// call request Delete
+	resp, err = req.do(origurl, args...)
+	return resp, err
+}
+
+func (req *Request) Move(origurl string, args ...interface{}) (resp *Response, err error) {
+	req.httpreq.Method = "MOVE"
+	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
 }
@@ -303,38 +291,6 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 	return resp, nil
 }
 
-// handle URL params
-func buildURLParams(userURL string, params ...map[string]string) (string, error) {
-	if len(params) == 0 {
-		return userURL, nil
-	}
-	parsedURL, err := url.Parse(userURL)
-
-	if err != nil {
-		return "", err
-	}
-
-	parsedQuery, err := url.ParseQuery(parsedURL.RawQuery)
-
-	if err != nil {
-		return "", nil
-	}
-
-	for _, param := range params {
-		for key, value := range param {
-			parsedQuery.Add(key, value)
-		}
-	}
-	return addQueryParams(parsedURL, parsedQuery), nil
-}
-
-func addQueryParams(parsedURL *url.URL, parsedQuery url.Values) string {
-	if len(parsedQuery) > 0 {
-		return strings.Join([]string{strings.Replace(parsedURL.String(), "?"+parsedURL.RawQuery, "", -1), parsedQuery.Encode()}, "?")
-	}
-	return strings.Replace(parsedURL.String(), "?"+parsedURL.RawQuery, "", -1)
-}
-
 // cookies
 // cookies only save to Client.Jar
 // Req.Cookies is temporary
@@ -377,157 +333,14 @@ func (req *Request) Proxy(proxyurl string) {
 	req.Client.Transport.(*http.Transport).Proxy = http.ProxyURL(urlproxy)
 }
 
-func (resp *Response) Content() []byte {
+// POST requests
+func (req *Request) PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
 
-	if resp.hasRead {
-		return resp.content
-	}
+	req.httpreq.Method = "POST"
 
-	var Body = resp.HttpResp.Body
-	if resp.HttpResp.Header.Get("Content-Encoding") == "gzip" && resp.Req.header.Get("Accept-Encoding") != "" {
-		// fmt.Println("gzip")
-		reader, err := gzip.NewReader(Body)
-		if err != nil {
-			return nil
-		}
-		Body = reader
-	}
-	eof := make(chan bool)
-	go func() {
-		resp.content, _ = ioutil.ReadAll(Body)
-		eof <- true
-	}()
-	select {
-	case <-time.After(resp.Req.Client.Timeout):
-	case <-eof:
-	}
-	resp.hasRead = true
-	resp.text = string(decodeBody(resp.content))
-	return resp.content
-}
+	req.header.Set("Content-Type", "application/json")
 
-func (resp *Response) GetRespText() (respText string) {
-	httpResp := resp.HttpResp
-	respText += fmt.Sprintf("%s %s\r\n", httpResp.Proto, httpResp.Status)
-	headers := []string{}
-	for k, v := range httpResp.Header {
-		headers = append(headers, fmt.Sprintf("%s: %s", k, strings.Join(v, ",")))
-	}
-	sort.Strings(headers)
-	respText += fmt.Sprintf("%s\r\n\r\n%s\r\n", strings.Join(headers, "\r\n"), resp.Text())
-	return
-}
-
-func (resp *Response) Text() string {
-	if !resp.hasRead {
-		resp.Content()
-	}
-	return resp.text
-}
-
-func (resp *Response) HeaderString() string {
-	if resp.header == "" {
-		for k, header := range resp.HttpResp.Header {
-			resp.header = resp.header + fmt.Sprintf("%s: %s\n", k, strings.Join(header, ","))
-		}
-	}
-	return resp.header
-}
-
-func (resp *Response) Title() string {
-	if resp.title == "" {
-		find := titleReg.FindSubmatch([]byte(resp.Text()))
-		if len(find) > 1 {
-			resp.title = string(find[1])
-			resp.title = html.UnescapeString(resp.title)
-			resp.title = strings.ReplaceAll(resp.title, "\t", "")
-			resp.title = strings.ReplaceAll(resp.title, "\n", "")
-			resp.title = strings.ReplaceAll(resp.title, "\r", "")
-			resp.title = strings.TrimSpace(resp.title)
-		}
-	}
-	return resp.title
-}
-
-func decodeBody(s []byte) []byte {
-	I := bytes.NewReader(s)
-	var O io.Reader
-	if utf8.Valid(s) {
-		O = transform.NewReader(I, unicode.UTF8.NewDecoder())
-	} else {
-		O = transform.NewReader(I, simplifiedchinese.GB18030.NewDecoder())
-	}
-	d, e := ioutil.ReadAll(O)
-	if e != nil {
-		return s
-	} else {
-		return d
-	}
-}
-
-func (resp *Response) BodyContains(arg interface{}) (result bool) {
-	switch a := arg.(type) {
-	case string:
-		result = strings.Contains(strings.ToLower(resp.Text()), strings.ToLower(a))
-	case []byte:
-		result = bytes.Contains(bytes.ToLower(resp.Content()), bytes.ToLower(a))
-	}
-	return
-}
-
-func (resp *Response) HeaderContains(arg string) (result bool) {
-	result = strings.Contains(strings.ToLower(resp.HeaderString()), strings.ToLower(arg))
-	return
-}
-
-func (resp *Response) Search(reg *regexp.Regexp) map[string]string {
-	match := reg.FindStringSubmatch(resp.Text())
-	groupNames := reg.SubexpNames()
-	result := make(map[string]string)
-	if len(match) < len(groupNames) {
-		return result
-	}
-	for i, name := range groupNames {
-		if i != 0 && name != "" {
-			result[name] = match[i]
-		}
-	}
-	return result
-}
-
-func (resp *Response) Json(v interface{}) error {
-	if resp.content == nil {
-		resp.Content()
-	}
-	return json.Unmarshal(resp.content, v)
-}
-
-func (resp *Response) Cookies() (cookies []*http.Cookie) {
-	//httpreq := resp.Req.httpreq
-	//client := resp.Req.Client
-	//
-	//cookies = client.Jar.Cookies(httpreq.URL)
-
-	return resp.HttpResp.Cookies()
-
-}
-
-/**************post*************************/
-// call Req.Post ,only for easy
-func Post(origurl string, args ...interface{}) (resp *Response, err error) {
-	req := Requests()
-
-	// call request Get
-	resp, err = req.Post(origurl, args...)
-	return resp, err
-}
-
-func Put(origurl string, args ...interface{}) (resp *Response, err error) {
-	req := Requests()
-
-	// call request Get
-	resp, err = req.PUT(origurl, args...)
-	return resp, err
+	return req.do(origurl, args...)
 }
 
 func PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
@@ -536,17 +349,6 @@ func PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
 	// call request Get
 	resp, err = req.PostJson(origurl, args...)
 	return resp, err
-}
-
-// POST requests
-
-func (req *Request) PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
-
-	req.httpreq.Method = "POST"
-
-	req.header.Set("Content-Type", "application/json")
-
-	return req.do(origurl, args...)
 }
 
 func (req *Request) Post(origurl string, args ...interface{}) (resp *Response, err error) {
@@ -559,15 +361,31 @@ func (req *Request) Post(origurl string, args ...interface{}) (resp *Response, e
 	return req.do(origurl, args...)
 }
 
+func Post(origurl string, args ...interface{}) (resp *Response, err error) {
+	req := Requests()
+
+	// call request Get
+	resp, err = req.Post(origurl, args...)
+	return resp, err
+}
+
 // PUT requests
 
-func (req *Request) PUT(origurl string, args ...interface{}) (resp *Response, err error) {
+func (req *Request) Put(origurl string, args ...interface{}) (resp *Response, err error) {
 
 	req.httpreq.Method = "PUT"
 
 	req.header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	return req.do(origurl, args...)
+}
+
+func Put(origurl string, args ...interface{}) (resp *Response, err error) {
+	req := Requests()
+
+	// call request Get
+	resp, err = req.Put(origurl, args...)
+	return resp, err
 }
 
 // only set forms
@@ -584,12 +402,6 @@ func (req *Request) setBodyBytes(Forms url.Values) {
 // only set forms
 func (req *Request) setBodyRawBytes(read io.ReadCloser) {
 	req.httpreq.Body = read
-}
-
-var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
-
-func escapeQuotes(s string) string {
-	return quoteEscaper.Replace(s)
 }
 
 // upload file and form
@@ -648,14 +460,4 @@ func (req *Request) buildForms(datas ...map[string]string) (Forms url.Values) {
 		}
 	}
 	return Forms
-}
-
-// open file for post upload files
-
-func openFile(filename string) *os.File {
-	r, err := os.Open(filename)
-	if err != nil {
-		panic(err)
-	}
-	return r
 }
