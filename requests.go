@@ -61,15 +61,11 @@ func Requests() *Request {
 
 	req.httpreq = &http.Request{
 		Method:     "GET",
-		Header:     make(http.Header),
+		Header:     nil,
 		Proto:      "HTTP/1.1",
 		ProtoMajor: 1,
 		ProtoMinor: 1,
 	}
-	req.header = &req.httpreq.Header
-	req.httpreq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
-	req.httpreq.Header.Set("Accept", "*/*")
-	req.httpreq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
 	req.Client = &http.Client{
 		Transport: &http.Transport{
 			MaxConnsPerHost: 0,
@@ -118,7 +114,7 @@ func (req *Request) EmptyHost() {
 	req.httpreq.Host = ""
 }
 
-func (req *Request) GetReqText() (reqText string) {
+func (req *Request) getReqText() (reqText string) {
 	httpreq := req.httpreq
 	path := httpreq.URL.RequestURI()
 	if len(path) == 0 {
@@ -133,7 +129,8 @@ func (req *Request) GetReqText() (reqText string) {
 		headers = append(headers, fmt.Sprintf("Content-Length: %d", httpreq.ContentLength))
 	}
 	sort.Strings(headers)
-	reqText += fmt.Sprintf("%s\r\n\r\n%s\r\n", strings.Join(headers, "\r\n"), req.body)
+	reqText += fmt.Sprintf("%s\r\n\r\n%s", strings.Join(headers, "\r\n"), req.body)
+	req.body = nil
 	return
 }
 
@@ -202,7 +199,12 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 
 	//reset Cookies,
 	//Client.Do can copy cookie from client.Jar to Req.header
-	delete(req.httpreq.Header, "Cookie")
+	//delete(req.httpreq.Header, "Cookie")
+	req.httpreq.Header = make(http.Header)
+	req.header = &req.httpreq.Header
+	req.httpreq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
+	req.httpreq.Header.Set("Accept", "*/*")
+	req.httpreq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
 
 	req.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		l := len(via)
@@ -276,7 +278,7 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 
 	var rawRequest string
 	if req.Trace != nil {
-		rawRequest = req.GetReqText()
+		rawRequest = req.getReqText()
 		req.logger.Debug("Send Request:\n" + rawRequest)
 	}
 	res, err := req.Client.Do(req.httpreq)
@@ -296,7 +298,7 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 
 	resp.Content()
 	if req.Trace != nil {
-		rawResponse := resp.GetRespText()
+		rawResponse := resp.getRespText()
 		req.logger.Debug("Receive response:\n" + rawResponse)
 		*req.Trace = append(*req.Trace, TraceInfo{
 			Request:  rawRequest,
@@ -344,7 +346,9 @@ func (req *Request) Proxy(proxyurl string) {
 	urli := url.URL{}
 	urlproxy, err := urli.Parse(proxyurl)
 	if err != nil {
-		fmt.Println("Set proxy failed")
+		if req.logger != nil {
+			req.logger.Error("Set proxy failed")
+		}
 		return
 	}
 	req.Client.Transport.(*http.Transport).Proxy = http.ProxyURL(urlproxy)

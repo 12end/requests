@@ -25,7 +25,7 @@ type Response struct {
 	Delay    time.Duration
 }
 
-func (resp *Response) GetRespText() (respText string) {
+func (resp *Response) getRespText() (respText string) {
 	httpResp := resp.HttpResp
 	respText += fmt.Sprintf("%s %s\r\n", httpResp.Proto, httpResp.Status)
 	headers := []string{}
@@ -33,7 +33,7 @@ func (resp *Response) GetRespText() (respText string) {
 		headers = append(headers, fmt.Sprintf("%s: %s", k, strings.Join(v, ",")))
 	}
 	sort.Strings(headers)
-	respText += fmt.Sprintf("%s\r\n\r\n%s\r\n", strings.Join(headers, "\r\n"), resp.Text())
+	respText += fmt.Sprintf("%s\r\n\r\n%s", strings.Join(headers, "\r\n"), resp.Text())
 	return
 }
 
