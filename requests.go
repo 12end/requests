@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -25,6 +26,7 @@ type Request struct {
 	Cookies             []*http.Cookie
 	body                []byte
 	Trace               *[]TraceInfo
+	logger              *zap.Logger
 	waitResponseStart   time.Time
 	waitResponeDuration time.Duration
 }
@@ -103,6 +105,12 @@ func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
 				},
 			}))
 	req.Trace = traceInfo
+	return req
+}
+
+//开启debug log
+func (req *Request) WithLogger(logger *zap.Logger) *Request {
+	req.logger = logger
 	return req
 }
 
@@ -266,6 +274,11 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 	}
 	req.ClientSetCookies()
 
+	var rawRequest string
+	if req.Trace != nil {
+		rawRequest = req.GetReqText()
+		req.logger.Debug("Send Request:\n" + rawRequest)
+	}
 	res, err := req.Client.Do(req.httpreq)
 
 	if err != nil {
@@ -281,9 +294,11 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 
 	resp.Content()
 	if req.Trace != nil {
+		rawResponse := resp.GetRespText()
+		req.logger.Debug("Receive response:\n" + rawResponse)
 		*req.Trace = append(*req.Trace, TraceInfo{
-			Request:  req.GetReqText(),
-			Response: resp.GetRespText(),
+			Request:  rawRequest,
+			Response: rawResponse,
 			Duration: resp.Delay,
 		})
 	}
