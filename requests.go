@@ -280,6 +280,8 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 		req.logger.Debug("Send Request:\n" + rawRequest)
 	}
 	res, err := req.Client.Do(req.httpreq)
+	req.httpreq.ContentLength = 0
+	req.httpreq.Body = nil
 
 	if err != nil {
 		// Debug
