@@ -91,7 +91,7 @@ func Requests() *Request {
 	return req
 }
 
-//开启trace，非线程安全
+// 开启trace，非线程安全
 func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
 	req.httpreq = req.httpreq.WithContext(
 		httptrace.WithClientTrace(
@@ -108,7 +108,7 @@ func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
 	return req
 }
 
-//开启debug log
+// 开启debug log
 func (req *Request) WithLogger(logger *zap.Logger) *Request {
 	req.logger = logger
 	return req
@@ -116,6 +116,10 @@ func (req *Request) WithLogger(logger *zap.Logger) *Request {
 
 func (req *Request) EmptyHost() {
 	req.httpreq.Host = ""
+}
+
+func (req *Request) Host(host string) {
+	req.httpreq.Host = host
 }
 
 func (req *Request) getReqText() (reqText string) {
