@@ -135,10 +135,10 @@ func (resp *Response) Json(v interface{}) error {
 }
 
 func (resp *Response) Cookies() (cookies []*http.Cookie) {
-	//httpreq := resp.Req.httpreq
+	//HttpReq := resp.Req.HttpReq
 	//client := resp.Req.Client
 	//
-	//cookies = client.Jar.Cookies(httpreq.URL)
+	//cookies = client.Jar.Cookies(HttpReq.URL)
 
 	return resp.HttpResp.Cookies()
 

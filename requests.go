@@ -20,7 +20,7 @@ import (
 )
 
 type Request struct {
-	httpreq             *http.Request
+	HttpReq             *http.Request
 	header              *http.Header
 	Client              *http.Client
 	Cookies             []*http.Cookie
@@ -59,7 +59,7 @@ func Requests() *Request {
 
 	req := new(Request)
 
-	req.httpreq = &http.Request{
+	req.HttpReq = &http.Request{
 		Method:     "GET",
 		Header:     make(http.Header),
 		Proto:      "HTTP/1.1",
@@ -79,10 +79,10 @@ func Requests() *Request {
 		},
 		Timeout: 5 * time.Second,
 	}
-	req.header = &req.httpreq.Header
-	req.httpreq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.102 Safari/537.36 Edg/104.0.1293.63")
-	req.httpreq.Header.Set("Accept", "*/*")
-	req.httpreq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
+	req.header = &req.HttpReq.Header
+	req.HttpReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.102 Safari/537.36 Edg/104.0.1293.63")
+	req.HttpReq.Header.Set("Accept", "*/*")
+	req.HttpReq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
 
 	// auto with Cookies
 	// cookiejar.New source code return jar, nil
@@ -93,9 +93,9 @@ func Requests() *Request {
 
 // 开启trace，非线程安全
 func (req *Request) WithTrace(traceInfo *[]TraceInfo) *Request {
-	req.httpreq = req.httpreq.WithContext(
+	req.HttpReq = req.HttpReq.WithContext(
 		httptrace.WithClientTrace(
-			req.httpreq.Context(),
+			req.HttpReq.Context(),
 			&httptrace.ClientTrace{
 				WroteRequest: func(_ httptrace.WroteRequestInfo) {
 					req.waitResponseStart = time.Now()
@@ -115,15 +115,15 @@ func (req *Request) WithLogger(logger *zap.Logger) *Request {
 }
 
 func (req *Request) EmptyHost() {
-	req.httpreq.Host = ""
+	req.HttpReq.Host = ""
 }
 
 func (req *Request) Host(host string) {
-	req.httpreq.Host = host
+	req.HttpReq.Host = host
 }
 
 func (req *Request) getReqText() (reqText string) {
-	httpreq := req.httpreq
+	httpreq := req.HttpReq
 	path := httpreq.URL.RequestURI()
 	if len(path) == 0 {
 		path = "/"
@@ -145,14 +145,14 @@ func (req *Request) getReqText() (reqText string) {
 // Get ,Req.Get
 func Get(origurl string, args ...interface{}) (resp *Response, err error) {
 	req := Requests()
-	req.httpreq.Method = "GET"
+	req.HttpReq.Method = "GET"
 	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
 }
 
 func (req *Request) Get(origurl string, args ...interface{}) (resp *Response, err error) {
-	req.httpreq.Method = "GET"
+	req.HttpReq.Method = "GET"
 	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
@@ -160,14 +160,14 @@ func (req *Request) Get(origurl string, args ...interface{}) (resp *Response, er
 
 func Head(origurl string, args ...interface{}) (resp *Response, err error) {
 	req := Requests()
-	req.httpreq.Method = "HEAD"
+	req.HttpReq.Method = "HEAD"
 	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
 }
 
 func (req *Request) Head(origurl string, args ...interface{}) (resp *Response, err error) {
-	req.httpreq.Method = "HEAD"
+	req.HttpReq.Method = "HEAD"
 	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
@@ -175,7 +175,7 @@ func (req *Request) Head(origurl string, args ...interface{}) (resp *Response, e
 
 func Delete(origurl string, args ...interface{}) (resp *Response, err error) {
 	req := Requests()
-	req.httpreq.Method = "DELETE"
+	req.HttpReq.Method = "DELETE"
 
 	// call request Delete
 	resp, err = req.do(origurl, args...)
@@ -183,7 +183,7 @@ func Delete(origurl string, args ...interface{}) (resp *Response, err error) {
 }
 
 func (req *Request) Move(origurl string, args ...interface{}) (resp *Response, err error) {
-	req.httpreq.Method = "MOVE"
+	req.HttpReq.Method = "MOVE"
 	// call request Get
 	resp, err = req.do(origurl, args...)
 	return resp, err
@@ -191,7 +191,7 @@ func (req *Request) Move(origurl string, args ...interface{}) (resp *Response, e
 
 func Move(origurl string, args ...interface{}) (resp *Response, err error) {
 	req := Requests()
-	req.httpreq.Method = "MOVE"
+	req.HttpReq.Method = "MOVE"
 
 	// call request Delete
 	resp, err = req.do(origurl, args...)
@@ -207,7 +207,7 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 
 	//reset Cookies,
 	//Client.Do can copy cookie from client.Jar to Req.header
-	//delete(req.httpreq.Header, "Cookie")
+	//delete(req.HttpReq.Header, "Cookie")
 
 	req.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		l := len(via)
@@ -227,12 +227,12 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 				(*req.header)[k] = []string{v}
 			}
 		case Host:
-			req.httpreq.Host = string(a)
+			req.HttpReq.Host = string(a)
 		case Params:
 			params = append(params, a)
 		case Auth:
 			// a{username,password}
-			req.httpreq.SetBasicAuth(a[0], a[1])
+			req.HttpReq.SetBasicAuth(a[0], a[1])
 		case NoRedirect:
 			if a == true {
 				req.Client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -240,13 +240,13 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 				}
 			}
 		case []byte:
-			req.httpreq.ContentLength = int64(len(arg.([]byte)))
-			if req.httpreq.ContentLength > 0 {
+			req.HttpReq.ContentLength = int64(len(arg.([]byte)))
+			if req.HttpReq.ContentLength > 0 {
 				req.setBodyRawBytes(ioutil.NopCloser(bytes.NewReader(arg.([]byte))))
 			}
 		case string:
-			req.httpreq.ContentLength = int64(len(arg.(string)))
-			if req.httpreq.ContentLength > 0 {
+			req.HttpReq.ContentLength = int64(len(arg.(string)))
+			if req.HttpReq.ContentLength > 0 {
 				req.setBodyRawBytes(ioutil.NopCloser(strings.NewReader(arg.(string))))
 			}
 		case Datas: //Post form data,packaged in body.
@@ -265,17 +265,17 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 	if err != nil {
 		return nil, err
 	}
-	req.httpreq.URL = URL
+	req.HttpReq.URL = URL
 	if len(files) > 0 {
 		req.buildFilesAndForms(files, datas)
-	} else if req.httpreq.Body == nil {
+	} else if req.HttpReq.Body == nil {
 		Forms := req.buildForms(datas...)
 		req.setBodyBytes(Forms) // set forms to body
 	}
 
-	if req.httpreq.Body != nil {
-		req.body, err = ioutil.ReadAll(req.httpreq.Body)
-		req.httpreq.Body = ioutil.NopCloser(bytes.NewBuffer(req.body))
+	if req.HttpReq.Body != nil {
+		req.body, err = ioutil.ReadAll(req.HttpReq.Body)
+		req.HttpReq.Body = ioutil.NopCloser(bytes.NewBuffer(req.body))
 	}
 	req.ClientSetCookies()
 
@@ -284,14 +284,14 @@ func (req *Request) do(origurl string, args ...interface{}) (resp *Response, err
 		rawRequest = req.getReqText()
 		req.logger.Debug("Send Request:\n" + rawRequest)
 	}
-	res, err := req.Client.Do(req.httpreq)
-	req.httpreq.ContentLength = 0
-	req.httpreq.Body = nil
-	req.httpreq.Header = make(http.Header)
-	req.header = &req.httpreq.Header
-	req.httpreq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
-	req.httpreq.Header.Set("Accept", "*/*")
-	req.httpreq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
+	res, err := req.Client.Do(req.HttpReq)
+	req.HttpReq.ContentLength = 0
+	req.HttpReq.Body = nil
+	req.HttpReq.Header = make(http.Header)
+	req.header = &req.HttpReq.Header
+	req.HttpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
+	req.HttpReq.Header.Set("Accept", "*/*")
+	req.HttpReq.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2")
 
 	if err != nil {
 		// Debug
@@ -334,7 +334,7 @@ func (req *Request) ClientSetCookies() {
 	if len(req.Cookies) > 0 {
 		// 1. Cookies have content, Copy Cookies to Client.jar
 		// 2. Clear  Cookies
-		req.Client.Jar.SetCookies(req.httpreq.URL, req.Cookies)
+		req.Client.Jar.SetCookies(req.HttpReq.URL, req.Cookies)
 		req.Cookies = req.Cookies[0:0]
 	}
 
@@ -346,7 +346,7 @@ func (req *Request) SetTimeout(n time.Duration) {
 }
 
 func (req *Request) Close() {
-	req.httpreq.Close = true
+	req.HttpReq.Close = true
 }
 
 func (req *Request) Proxy(proxyurl string) {
@@ -365,7 +365,7 @@ func (req *Request) Proxy(proxyurl string) {
 // POST requests
 func (req *Request) PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
 
-	req.httpreq.Method = "POST"
+	req.HttpReq.Method = "POST"
 
 	req.header.Set("Content-Type", "application/json")
 
@@ -382,7 +382,7 @@ func PostJson(origurl string, args ...interface{}) (resp *Response, err error) {
 
 func (req *Request) Post(origurl string, args ...interface{}) (resp *Response, err error) {
 
-	req.httpreq.Method = "POST"
+	req.HttpReq.Method = "POST"
 
 	//set default
 	req.header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -402,7 +402,7 @@ func Post(origurl string, args ...interface{}) (resp *Response, err error) {
 
 func (req *Request) Put(origurl string, args ...interface{}) (resp *Response, err error) {
 
-	req.httpreq.Method = "PUT"
+	req.HttpReq.Method = "PUT"
 
 	req.header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -423,14 +423,14 @@ func (req *Request) setBodyBytes(Forms url.Values) {
 	// maybe
 	data := Forms.Encode()
 	if len(data) > 0 {
-		req.httpreq.Body = ioutil.NopCloser(strings.NewReader(data))
+		req.HttpReq.Body = ioutil.NopCloser(strings.NewReader(data))
 	}
-	req.httpreq.ContentLength = int64(len(data))
+	req.HttpReq.ContentLength = int64(len(data))
 }
 
 // only set forms
 func (req *Request) setBodyRawBytes(read io.ReadCloser) {
-	req.httpreq.Body = read
+	req.HttpReq.Body = read
 }
 
 // upload file and form
@@ -475,8 +475,8 @@ func (req *Request) buildFilesAndForms(files []map[string]File, datas []map[stri
 	w.Close()
 	// set file header example:
 	// "Content-Type": "multipart/form-data; boundary=------------------------7d87eceb5520850c",
-	req.httpreq.Body = ioutil.NopCloser(bytes.NewReader(b.Bytes()))
-	req.httpreq.ContentLength = int64(b.Len())
+	req.HttpReq.Body = ioutil.NopCloser(bytes.NewReader(b.Bytes()))
+	req.HttpReq.ContentLength = int64(b.Len())
 	req.header.Set("Content-Type", w.FormDataContentType())
 }
 
