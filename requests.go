@@ -444,14 +444,17 @@ func (req *Request) buildFilesAndForms(files []map[string]File, datas []map[stri
 
 	for _, file := range files {
 		for fieldName, f := range file {
-			if f.ContentType == "" {
-				f.ContentType = "application/octet-stream"
+			contentDisposition := fmt.Sprintf("form-data; name=\"%s\";", escapeQuotes(fieldName))
+			if f.FileName != "" {
+				contentDisposition += fmt.Sprintf(" filename=\"%s\"", escapeQuotes(f.FileName))
 			}
 			h := make(textproto.MIMEHeader)
-			h.Set("Content-Disposition",
-				fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
-					escapeQuotes(fieldName), escapeQuotes(f.FileName)))
-			h.Set("Content-Type", f.ContentType)
+			if f.ContentType != "" {
+				//f.ContentType = "application/octet-stream"
+				h.Set("Content-Type", f.ContentType)
+			}
+			h.Set("Content-Disposition", contentDisposition)
+
 			part, err := w.CreatePart(h)
 			//part, err := w.CreateFormFile(fieldName, f.FileName)
 			if err != nil {
