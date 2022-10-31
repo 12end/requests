@@ -44,6 +44,15 @@ func (resp *Response) Text() string {
 	return resp.text
 }
 
+func (resp *Response) Cookie(key string) (value []string) {
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == key {
+			value = append(value, cookie.Value)
+		}
+	}
+	return
+}
+
 func (resp *Response) HeaderString() string {
 	if resp.header == "" {
 		for k, header := range resp.HttpResp.Header {
